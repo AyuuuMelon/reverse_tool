@@ -1,0 +1,9 @@
+{
+    "python.analysis.extraPaths": [
+        "./stub_files"
+    ],
+    "python.analysis.ignore": [
+        "./stub_files/**",
+        "./renderdoc_src/docs/**"
+    ]
+}
