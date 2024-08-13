@@ -2,6 +2,7 @@ import os
 import sys
 from types import ModuleType
 from typing import TYPE_CHECKING
+
 # 欺骗类型检查器，使其能够正常代码跳转，实际应在使用到之前就应该调用setup_renderdoc_env并import renderdoc as rd
 if TYPE_CHECKING:
     import renderdoc as rd
@@ -31,40 +32,68 @@ def load_capture_with_rd(filename: str, rd: ModuleType):
     if TYPE_CHECKING:
         import renderdoc as rd
     
-    # Open a capture file handle
+    # 得到一个capture文件的handle
     cap = rd.OpenCaptureFile()
     
-    # Open a particular file - see also OpenBuffer to load from memory
+    # 打开一个特定的capture文件
     result = cap.OpenFile(filename, '', None)
 
-	# Make sure the file opened successfully
+	# 确保文件成功打开
     if result != rd.ResultCode.Succeeded:
         raise RuntimeError("Couldn't open file: " + str(result))
 
-    # Make sure we can replay
+    # 确保文件可以replay，非.rdc文件不能replay
     if not cap.LocalReplaySupport():
         raise RuntimeError("Capture cannot be replayed")
 
-    # Initialise the replay
-    result,controller = cap.OpenCapture(rd.ReplayOptions(), None)
+    # 初始化replay，得到用于获取各种信息的replay controller
+    result, controller = cap.OpenCapture(rd.ReplayOptions(), None)
 
+    # 确保replay初始化成功
     if result != rd.ResultCode.Succeeded:
         raise RuntimeError("Couldn't initialise replay: " + str(result))
 
     return cap, controller
 
-def controller_traverse_action(controller: "rd.ReplayController", action: "rd.ActionDescription", isPrint: bool = False):
-    '''递归遍历一个action下的所有action，打印出来所有的eventId和action的名字
+def traverse_print_action(action: "rd.ActionDescription", structured_file: "rd.SDFile", is_print: bool=True):
+    '''递归遍历一个action下的所有action，打印出来所有的action的eventId和名字
     
     Args:
-        controller: 用于获取各种信息
         action: 要遍历的action
-        isPrint: 是否打印action的名字，默认为False
+        structured_file: 用于获取action的名字
+        is_print: 是否打印action，默认为True
     
     参考自https://renderdoc.org/docs/python_api/examples/renderdoc/iter_actions.html
     '''
-    if isPrint:
-        print(f"{action.eventId}: {action.GetName(controller.GetStructuredFile())}")
+    if is_print:
+        print(f"{action.eventId}: {action.GetName(structured_file)}")
         
-    for event in action.children:
-       controller_traverse_action(controller, event)
+    for child in action.children:
+       traverse_print_action(child, structured_file, is_print)
+       
+def traverse_find_biggest_action(action: "rd.ActionDescription", prev_biggest: "rd.ActionDescription"=None):
+    '''递归遍历一个action下的所有action，找到顶点数最多的action返回
+    
+    Args:
+        action: 要遍历的action
+        prev_biggest: 之前找到的顶点数最多的action，默认为None，用于递归遍历时传递
+    '''
+    if prev_biggest is None or action.numIndices > prev_biggest.numIndices:
+        prev_biggest = action
+        
+    for child in action.children:
+        child_biggest = prev_biggest = traverse_find_biggest_action(child, prev_biggest)
+        if child_biggest.numIndices > prev_biggest.numIndices:
+            prev_biggest = child_biggest
+            
+    return prev_biggest
+
+class TextureManager():
+    def __init__(self, controller: "rd.ReplayController"):
+        self.textures = controller.GetTextures()
+        
+    def get_texture(self, texture_resouce_id: "rd.ResourceId"):
+        for texture in self.textures:
+            if texture.resourceId == texture_resouce_id:
+                return texture
+        return None

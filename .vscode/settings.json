@@ -5,5 +5,7 @@
     "python.analysis.ignore": [
         "./stub_files/**",
         "./renderdoc_src/docs/**"
-    ]
+    ],
+    "python.analysis.typeCheckingMode": "off",
+    "C_Cpp.errorSquiggles": "disabled"
 }

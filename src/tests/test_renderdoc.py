@@ -1,6 +1,6 @@
 import os
 import unittest
-from reverse_tool.renderdoc_utils import init_renderdoc, load_capture
+from reverse_tool.renderdoc_utils import setup_renderdoc_env, load_capture_with_rd
 
 class TestOpenCapture(unittest.TestCase):
     @classmethod
@@ -15,12 +15,16 @@ class TestOpenCapture(unittest.TestCase):
         pymodules_dir = os.path.join(renderdoc_src_dir, "x64", "Release", "pymodules")
         dll_dir = os.path.join(renderdoc_src_dir, "x64", "Release")
 
-        # 相当于设置了相应环境并import renderdoc as rd
-        rd = init_renderdoc(pymodules_dir, dll_dir)
+        setup_renderdoc_env(pymodules_dir, dll_dir)
+        global rd
+        import renderdoc as rd
     
     def test_open_capture(self):
-        rdc_file_path = os.path.join(self.resources_dir, "rdr2_human.rdc") # type: ignore
+        rdc_file_path = os.path.join(self.resources_dir, "rdr2_human.rdc")
 
         # 加载capture文件
-        cap, controller = load_capture(rdc_file_path)
+        cap, controller =load_capture_with_rd(rdc_file_path, rd)
         self.assertEqual(len(controller.GetRootActions()), 3045)
+        
+    def test_save_texture(self):
+        rdc_file_path = os.path.join(self.resources_dir, "rdr2_human.rdc")
