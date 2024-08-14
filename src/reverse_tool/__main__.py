@@ -1,12 +1,14 @@
 import os
-
-# from renderdoc import ActionDescription
+import struct
+import csv
 
 from .renderdoc_utils import (setup_renderdoc_env,
                               load_capture,
                               traverse_print_action,
+                              find_biggest_action,
                               traverse_find_biggest_action,
-                              TextureManager,
+                              RenderdocManager,
+                              MeshData,
                               )
 
 def py_dll_dirs_from_renderdoc_src(root_dir: str):
@@ -44,12 +46,15 @@ if __name__ == "__main__":
     rdc_file_path = os.path.join(resources_dir, "rdr2_human.rdc")
     cap, controller = load_capture(rdc_file_path, rd)
     
-    texture_manager = TextureManager(controller, rd)
+    renderdoc_manager = RenderdocManager(controller, rd)
 
     # 4102 - 4133 有child的action
     # 4595 - 4655 衣服模型
-    texture_manager.save_textures(4595, 4595, resources_dir, save_inputs=True, save_outputs=False)
+    # renderdoc_manager.save_textures(4595, 4595, resources_dir, save_inputs=True, save_outputs=False)
     
-    
-    
-    
+    action = renderdoc_manager.find_action_by_eid(4595)
+    renderdoc_manager.controller.SetFrameEvent(action .eventId, True)
+    print(f"Decoding mesh input at {action .eventId}: {action.GetName(renderdoc_manager.structured_file)}")
+    mesh_data = renderdoc_manager.get_mesh_inputs(action)
+    renderdoc_manager.save_mesh_data(mesh_data, action, resources_dir)
+            
