@@ -1,6 +1,17 @@
 import os
-import struct
-import csv
+from PySide6.QtWidgets import (QApplication,
+                               QMainWindow,
+                               QPushButton,
+                               QTableWidget,
+                               QTableWidgetItem,
+                               QLineEdit,
+                               QVBoxLayout,
+                               QHBoxLayout,
+                               QWidget,
+                               QTabWidget,
+                               QLabel,
+                               QGridLayout
+                               )
 
 from .renderdoc_utils import (setup_renderdoc_env,
                               load_capture,
