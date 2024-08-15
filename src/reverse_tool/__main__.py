@@ -22,6 +22,10 @@ from .renderdoc_utils import (setup_renderdoc_env,
                               MeshData,
                               )
 
+from .renderdoc_utils_refactor import (import_renderdoc_from,
+                                       CaptureManager,
+                                        )
+
 def py_dll_dirs_from_renderdoc_src(root_dir: str):
     '''从renderdoc源码文件夹中找到的python modules和dll路径
     
@@ -44,28 +48,12 @@ if __name__ == "__main__":
     
     # 获取renderdoc源码文件夹中的python modules和dll路径
     pymodules_dir, dll_dir = py_dll_dirs_from_renderdoc_src(root_dir)
-
-    # 设置import需要的相应环境并import renderdoc模块
-    setup_renderdoc_env(pymodules_dir, dll_dir)
-    import renderdoc as rd
-    
-    # 为replay初始化renderdoc，按照示例代码应该在使用replay api之前调用
-    rd.InitialiseReplay(rd.GlobalEnvironment(), [])
         
-    # 加载.rdc文件
+    # # 加载.rdc文件
     resources_dir = os.path.join(root_dir, "resources")
     rdc_file_path = os.path.join(resources_dir, "rdr2_human.rdc")
-    cap, controller = load_capture(rdc_file_path, rd)
-    
-    renderdoc_manager = RenderdocManager(controller, rd)
-
-    # 4102 - 4133 有child的action
-    # 4595 - 4655 衣服模型
-    # renderdoc_manager.save_textures(4595, 4595, resources_dir, save_inputs=True, save_outputs=False)
-    
-    action = renderdoc_manager.find_action_by_eid(4595)
-    renderdoc_manager.controller.SetFrameEvent(action .eventId, True)
-    print(f"Decoding mesh input at {action .eventId}: {action.GetName(renderdoc_manager.structured_file)}")
-    mesh_data = renderdoc_manager.get_mesh_inputs(action)
-    renderdoc_manager.save_mesh_data(mesh_data, action, resources_dir)
             
+    with import_renderdoc_from(pymodules_dir, dll_dir):
+        with CaptureManager(rdc_file_path) as cap:
+            cap.save_textures(4595, 4595, resources_dir, save_inputs=True, save_outputs=False)
+            cap.save_mesh_data(4595, 4595, resources_dir, save_inputs=False, save_outputs=True)

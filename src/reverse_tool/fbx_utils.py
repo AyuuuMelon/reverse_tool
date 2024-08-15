@@ -93,7 +93,7 @@ def setMeshUV(csvList, newMesh, uv0ID, vtxID=1, uv1ID=None):
         uv_index_array.SetAt(i-1, i-1)
 
 
-def setMeshUVs(csvList, newMesh, uvid_list, vtxID=1):
+def setMeshUVs(csvList, newMesh: FbxMesh, uvid_list, vtxID=1):
     count = len(csvList)
     
     # 遍历每个 UV ID

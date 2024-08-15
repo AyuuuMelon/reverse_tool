@@ -6,6 +6,17 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import renderdoc as rd
+    
+import logging
+
+logging.basicConfig(level=logging.DEBUG,  # 设置日志级别
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # 设置日志格式
+                    datefmt='%Y-%m-%d %H:%M:%S',  # 设置日期格式
+                    handlers=[
+                        # logging.FileHandler('app.log'),  # 将日志输出到文件
+                        logging.StreamHandler()  # 将日志输出到控制台
+                    ])
+logger = logging.getLogger(__name__)
 
 @contextmanager
 def import_renderdoc_from(pymodules_dir: str, dll_dir: str):
@@ -14,14 +25,24 @@ def import_renderdoc_from(pymodules_dir: str, dll_dir: str):
     if sys.platform == 'win32' and sys.version_info >= (3, 8):
         os.add_dll_directory(dll_dir)
     
-    import renderdoc as rd
+    logging.debug("importing renderdoc from {pymodules_dir}" and {dll_dir})
+    import renderdoc
+    global rd
+    rd = renderdoc
     rd.InitialiseReplay(rd.GlobalEnvironment(), [])
     
     try:
         yield rd
     finally:
-        rd.ShutdownReplay()
+        shutdown_renderdoc()
         pass
+
+def shutdown_renderdoc():
+    rd.ShutdownReplay()
+
+class MeshData():
+    indexOffset = 0
+    name = ''
 
 class CaptureManager:
     def __init__(self, filename: str):
@@ -55,9 +76,8 @@ class CaptureManager:
     def save_textures(self, begin_eid: int, end_eid: int, save_dir: str, save_inputs: bool = True, save_outputs: bool = False):
         self.texture_manager.save_textures(begin_eid, end_eid, save_dir, save_inputs, save_outputs)
 
-    def save_meshes(self, save_dir: str):
-        for action in self.controller.GetRootActions():
-            self.mesh_manager.save_mesh_data(action, save_dir)
+    def save_mesh_data(self, begin_eid: int, end_eid: int, save_dir: str, save_inputs: bool = True, save_outputs: bool = False):
+        self.mesh_manager.save_mesh_data(begin_eid, end_eid, save_dir, save_inputs, save_outputs)
 
 class TextureManager:
     def __init__(self, controller):
@@ -70,22 +90,24 @@ class TextureManager:
             if begin_eid <= action.eventId <= end_eid:
                 self.controller.SetFrameEvent(action.eventId, True)
                 state = self.controller.GetPipelineState()
+                eid = action.eventId
                 
                 if save_inputs:
                     readonly_descs = state.GetReadOnlyResources(rd.ShaderStage.Fragment)
                     for readonly_desc in readonly_descs:
                         input_texture_id = readonly_desc.descriptor.resource
                         texture_desc = self._get_texture_desc_from_id(input_texture_id)
-                        self._save_texture_from_desc(texture_desc, save_dir)
+                        self._save_texture_from_desc(texture_desc, save_dir, eid)
                         
                 if save_outputs:
                     for output_texture_id in action.outputs: 
                         texture_desc = self._get_texture_desc_from_id(output_texture_id)
-                        self._save_texture_from_desc(texture_desc, save_dir)
+                        self._save_texture_from_desc(texture_desc, save_dir, eid)
 
-    def _save_texture_from_desc(self, texture_desc: 'rd.TextureDescription | None', save_dir: str):
+    def _save_texture_from_desc(self, texture_desc: 'rd.TextureDescription | None', save_dir: str, eid: int):
         if texture_desc is None:
             return
+        
         texture_type = texture_desc.type.name
         resouce_id = str(texture_desc.resourceId).split("::")[-1]
         texture_format = texture_desc.format.Name()
@@ -98,9 +120,14 @@ class TextureManager:
         self.texsave.alpha = rd.AlphaMapping.BlendToCheckerboard
         self.texsave.destType = rd.FileType.JPG
         file_suffix = self.texsave.destType.name.split(".")[-1].lower()
-        texture_save_path = os.path.join(save_dir, f"{file_name}.{file_suffix}")
+        
+        save_dir_with_eid = os.path.join(save_dir, str(eid))
+        if not os.path.exists(save_dir_with_eid):
+            os.makedirs(save_dir_with_eid)
+        texture_save_path = os.path.join(save_dir_with_eid, f"{file_name}.{file_suffix}")
+        
         self.controller.SaveTexture(self.texsave, texture_save_path)
-        print(f"Saving {file_name}.{file_suffix}")
+        logging.debug(f"Finish saving {file_name}.{file_suffix}")
 
     def _get_texture_desc_from_id(self, texture_resouce_id):
         self.texsave.resourceId = texture_resouce_id
@@ -108,10 +135,6 @@ class TextureManager:
             for texture_desc in self.textures:
                 if texture_desc.resourceId == texture_resouce_id:
                     return texture_desc
-
-class MeshData():
-    indexOffset = 0
-    name = ''
 
 class MeshManager:
     def __init__(self, controller):
@@ -167,17 +190,36 @@ class MeshManager:
         else:
             return list(range(mesh_attr.numIndices))
         
-    def save_mesh_data(self, mesh_attrs: list[MeshData] | None, action, save_dir: str):
+    def save_mesh_data(self, begin_eid: int, end_eid: int, save_dir: str, save_inputs: bool = False, save_outputs: bool = True):
+        for action in self.controller.GetRootActions():
+            if begin_eid <= action.eventId <= end_eid:
+                eid = action.eventId
+                
+                if save_inputs:
+                    logging.debug(f"Decoding mesh input at {eid}: {action.GetName(self.controller.GetStructuredFile())}")
+                    mesh_attrs = self.get_mesh_inputs(action)
+                    self.save_single_mesh_data(mesh_attrs, save_dir, eid, is_input=True)
+                    logging.debug(f"finish saving mesh input at {eid}")
+                if save_outputs:
+                    logging.debug(f"Decoding mesh output at {eid}: {action.GetName(self.controller.GetStructuredFile())}")
+                    mesh_attrs = self.get_mesh_inputs(action)
+                    self.save_single_mesh_data(mesh_attrs, save_dir, eid, is_input=False)
+                    logging.debug(f"finish saving mesh output at {eid}")
+        
+    def save_single_mesh_data(self, mesh_attrs: list[MeshData] | None, save_dir: str, eid: int, is_input: bool):
         if mesh_attrs is None:
-            print("No mesh data")
+            logging.debug(f"Mesh data is None at {eid}")
             return
         
-        save_dir = os.path.join(save_dir, "mesh_data")
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-        outPath = f"{save_dir}/{action.eventId}.csv"
+        save_dir_with_eid = os.path.join(save_dir, str(eid))
+        if not os.path.exists(save_dir_with_eid):
+            os.makedirs(save_dir_with_eid)
+        if is_input:
+            csv_save_path = f"{save_dir_with_eid}/{eid}_input.csv"
+        else:
+            csv_save_path = f"{save_dir_with_eid}/{eid}_output.csv"
 
-        with open(outPath, "w", newline="") as csv_file:
+        with open(csv_save_path, "w", newline="") as csv_file:
             writer = csv.writer(csv_file)
 
             fileheader = ["VTX", "IDX"]
@@ -247,14 +289,3 @@ class MeshManager:
             a = a / 3.0
         
         return (r, g, b, a)
-
-if __name__ == "__main__":
-    with import_renderdoc_from("path/to/pymodules", "path/to/dll") as rd:
-        with CaptureManager("path/to/capture1.rdc") as cap:
-            cap.save_textures(0, 100, "output/textures")
-            cap.save_meshes("output/meshes")
-
-        # 如果需要处理多个捕获文件，可以再次使用 CaptureManager
-        with CaptureManager("path/to/capture2.rdc") as cap:
-            cap.save_textures(0, 100, "output/textures2")
-            cap.save_meshes("output/meshes2")
