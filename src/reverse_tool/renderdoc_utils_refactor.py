@@ -3,39 +3,31 @@ import sys
 import struct
 import csv
 from contextlib import contextmanager
+from .debug_utils import timer, logger
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     import renderdoc as rd
-    
-import logging
 
-logging.basicConfig(level=logging.DEBUG,  # 设置日志级别
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # 设置日志格式
-                    datefmt='%Y-%m-%d %H:%M:%S',  # 设置日期格式
-                    handlers=[
-                        # logging.FileHandler('app.log'),  # 将日志输出到文件
-                        logging.StreamHandler()  # 将日志输出到控制台
-                    ])
-logger = logging.getLogger(__name__)
+if not TYPE_CHECKING: # pylance的类型检查很怪，只有让pylance不检查这里底下的跳转才能正常跳转，实际该函数是会执行的
+    @contextmanager
+    def import_renderdoc_from(pymodules_dir: str, dll_dir: str):
+        sys.path.append(pymodules_dir)
+        os.environ["PATH"] = os.pathsep.join([os.environ["PATH"], dll_dir])
+        if sys.platform == 'win32' and sys.version_info >= (3, 8):
+            os.add_dll_directory(dll_dir)
+        
+        logger.debug("importing renderdoc from {pymodules_dir}" and {dll_dir})
+        import renderdoc
+        global rd
+        rd = renderdoc
+        rd.InitialiseReplay(rd.GlobalEnvironment(), [])
 
-@contextmanager
-def import_renderdoc_from(pymodules_dir: str, dll_dir: str):
-    sys.path.append(pymodules_dir)
-    os.environ["PATH"] = os.pathsep.join([os.environ["PATH"], dll_dir])
-    if sys.platform == 'win32' and sys.version_info >= (3, 8):
-        os.add_dll_directory(dll_dir)
-    
-    logging.debug("importing renderdoc from {pymodules_dir}" and {dll_dir})
-    import renderdoc
-    global rd
-    rd = renderdoc
-    rd.InitialiseReplay(rd.GlobalEnvironment(), [])
-    
-    try:
-        yield rd
-    finally:
-        shutdown_renderdoc()
-        pass
+        try:
+            yield rd
+        finally:
+            shutdown_renderdoc()
+            pass
 
 def shutdown_renderdoc():
     rd.ShutdownReplay()
@@ -80,7 +72,7 @@ class CaptureManager:
         self.mesh_manager.save_mesh_data(begin_eid, end_eid, save_dir, save_inputs, save_outputs)
 
 class TextureManager:
-    def __init__(self, controller):
+    def __init__(self, controller: "rd.ReplayController"):
         self.controller = controller
         self.textures = controller.GetTextures()
         self.texsave = rd.TextureSave()
@@ -104,7 +96,7 @@ class TextureManager:
                         texture_desc = self._get_texture_desc_from_id(output_texture_id)
                         self._save_texture_from_desc(texture_desc, save_dir, eid)
 
-    def _save_texture_from_desc(self, texture_desc: 'rd.TextureDescription | None', save_dir: str, eid: int):
+    def _save_texture_from_desc(self, texture_desc: "rd.TextureDescription | None", save_dir: str, eid: int):
         if texture_desc is None:
             return
         
@@ -127,7 +119,7 @@ class TextureManager:
         texture_save_path = os.path.join(save_dir_with_eid, f"{file_name}.{file_suffix}")
         
         self.controller.SaveTexture(self.texsave, texture_save_path)
-        logging.debug(f"Finish saving {file_name}.{file_suffix}")
+        logger.debug(f"Finish saving {file_name}.{file_suffix}")
 
     def _get_texture_desc_from_id(self, texture_resouce_id):
         self.texsave.resourceId = texture_resouce_id
@@ -137,15 +129,15 @@ class TextureManager:
                     return texture_desc
 
 class MeshManager:
-    def __init__(self, controller):
+    def __init__(self, controller: "rd.ReplayController"):
         self.controller = controller
-
-    def get_mesh_inputs(self, action) -> list[MeshData]:
+        
+    def get_single_mesh_input(self, action):
         state = self.controller.GetPipelineState()
         ib = state.GetIBuffer()
         vbs = state.GetVBuffers()
         attrs = state.GetVertexInputs()
-        input_attrs = []
+        input_attrs: MeshData = []
 
         for attr in attrs:
             if attr.perInstance:
@@ -173,6 +165,65 @@ class MeshManager:
 
         return input_attrs
 
+    @timer
+    def get_single_mesh_output(self, postvs):
+        output_attrs: list[MeshData] = []
+        posidx = 0
+
+        vs = self.controller.GetPipelineState().GetShaderReflection(rd.ShaderStage.Vertex)
+
+        # Repeat the process, but this time sourcing the data from postvs.
+        # Since these are outputs, we iterate over the list of outputs from the
+        # vertex shader's reflection data
+        for attr in vs.outputSignature:
+            # Copy most properties from the postvs struct
+            output_attr = MeshData()
+            output_attr.indexResourceId = postvs.indexResourceId
+            output_attr.indexByteOffset = postvs.indexByteOffset
+            output_attr.indexByteStride = postvs.indexByteStride
+            output_attr.baseVertex = postvs.baseVertex
+            output_attr.indexOffset = 0
+            output_attr.numIndices = postvs.numIndices
+
+            # The total offset is the attribute offset from the base of the vertex,
+            # as calculated by the stride per index
+            output_attr.vertexByteOffset = postvs.vertexByteOffset
+            output_attr.vertexResourceId = postvs.vertexResourceId
+            output_attr.vertexByteStride = postvs.vertexByteStride
+
+            # Construct a resource format for this element
+            output_attr.format = rd.ResourceFormat()
+            output_attr.format.compByteWidth = rd.VarTypeByteSize(attr.varType)
+            output_attr.format.compCount = attr.compCount
+            output_attr.format.compType = rd.VarTypeCompType(attr.varType)
+            output_attr.format.type = rd.ResourceFormatType.Regular
+
+            output_attr.name = attr.semanticIdxName if attr.varName == '' else attr.varName
+
+            if attr.systemValue == rd.ShaderBuiltin.Position:
+                posidx = len(output_attrs)
+
+            output_attrs.append(output_attr)
+            
+        # Shuffle the position element to the front
+        if posidx > 0:
+            pos = output_attrs[posidx]
+            del output_attrs[posidx]
+            output_attrs.insert(0, pos)
+
+        accumOffset = 0
+
+        for i in range(0, len(output_attrs)):
+            output_attrs[i].vertexByteOffset = accumOffset
+
+            # Note that some APIs such as Vulkan will pad the size of the attribute here
+            # while others will tightly pack
+            fmt = output_attrs[i].format
+
+            accumOffset += (8 if fmt.compByteWidth > 4 else 4) * fmt.compCount
+            
+        return output_attrs
+
     def get_indices(self, mesh_attr: MeshData) -> list[int]:
         indexFormat = 'B'
         if mesh_attr.indexByteStride == 2:
@@ -189,26 +240,32 @@ class MeshManager:
             return [i + mesh_attr.baseVertex for i in indices]
         else:
             return list(range(mesh_attr.numIndices))
-        
+    
+    @timer
     def save_mesh_data(self, begin_eid: int, end_eid: int, save_dir: str, save_inputs: bool = False, save_outputs: bool = True):
         for action in self.controller.GetRootActions():
             if begin_eid <= action.eventId <= end_eid:
+                self.controller.SetFrameEvent(action.eventId, True)
+                state = self.controller.GetPipelineState()
                 eid = action.eventId
                 
                 if save_inputs:
-                    logging.debug(f"Decoding mesh input at {eid}: {action.GetName(self.controller.GetStructuredFile())}")
-                    mesh_attrs = self.get_mesh_inputs(action)
+                    logger.debug(f"Decoding mesh input at {eid}: {action.GetName(self.controller.GetStructuredFile())}")
+                    mesh_attrs = self.get_single_mesh_input(action)
                     self.save_single_mesh_data(mesh_attrs, save_dir, eid, is_input=True)
-                    logging.debug(f"finish saving mesh input at {eid}")
+                    logger.debug(f"finish saving mesh input at {eid}")
+                    
                 if save_outputs:
-                    logging.debug(f"Decoding mesh output at {eid}: {action.GetName(self.controller.GetStructuredFile())}")
-                    mesh_attrs = self.get_mesh_inputs(action)
+                    logger.debug(f"Decoding mesh output at {eid}: {action.GetName(self.controller.GetStructuredFile())}")
+                    postvs = self.controller.GetPostVSData(0, 0, rd.MeshDataStage.VSOut)
+                    mesh_attrs = self.get_single_mesh_output(postvs)
                     self.save_single_mesh_data(mesh_attrs, save_dir, eid, is_input=False)
-                    logging.debug(f"finish saving mesh output at {eid}")
+                    logger.debug(f"finish saving mesh output at {eid}")
         
+    # @timer # 4595 46.5096s, 4600, 9.0270s, 4605, 0.3212s
     def save_single_mesh_data(self, mesh_attrs: list[MeshData] | None, save_dir: str, eid: int, is_input: bool):
         if mesh_attrs is None:
-            logging.debug(f"Mesh data is None at {eid}")
+            logger.debug(f"Mesh data is None at {eid}")
             return
         
         save_dir_with_eid = os.path.join(save_dir, str(eid))
@@ -236,15 +293,18 @@ class MeshManager:
                 for attr in mesh_attrs:
                     if not attr.format.Special():
                         offset = attr.vertexByteOffset + attr.vertexByteStride * idx
-                        data = self.controller.GetBufferData(attr.vertexResourceId, offset, 0)
+                        data = self.controller.GetBufferData(attr.vertexResourceId, offset, 64)
                         value = self.unpack_data(attr.format, data)
+
                         indiceArray.extend(value[:attr.format.compCount])
                 writer.writerow(indiceArray)
-
-    def unpack_data(self, fmt, data):
+    
+    def unpack_data(self, fmt: "rd.MeshFormat", data):
         if fmt.Special():
             if fmt.type == rd.ResourceFormatType.R10G10B10A2:
                 return self._unpack_r10g10b10a2(data, fmt.compType == rd.CompType.UNorm)
+            else:
+                logger.debug(f"Unsupported special format: {fmt.type}")
 
         formatChars = {
             rd.CompType.UInt: "xBHxIxxxL",

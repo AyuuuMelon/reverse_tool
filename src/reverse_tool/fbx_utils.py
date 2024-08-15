@@ -1,105 +1,77 @@
 import os
 import csv
-from fbx import FbxVector4, FbxLayerElement, FbxExporter, FbxVector2, FbxLayerElementNormal
-from fbx import FbxManager, FbxScene, FbxMesh, FbxNode
-import FbxCommon
 import numpy as np
+from typing import List, Union
+from fbx import FbxVector4, FbxLayerElement, FbxExporter, FbxVector2
+from fbx import FbxManager, FbxScene, FbxMesh, FbxNode
+from reverse_tool import FbxCommon
+from .debug_utils import timer
 
+def multiply_matrix_and_vector(matrix: np.ndarray, vector: np.ndarray):
+    """
+    计算4x4矩阵和向量的乘积
+    
+    Args:
+        matrix: 4x4 numpy数组
+        vector: 4x1 numpy数组
+    
+    Returns:
+        4x1 numpy数组，表示矩阵和向量的乘积
+    """
+    return np.dot(matrix, vector)
 
-# # 检查 csv_path 是否是一个存在的 CSV 文件
-# if not os.path.isfile(csv_path) or not csv_path.endswith(".csv"):
-#     print("找不到这个文件：{}".format(csv_path))
-# else:
-#     # 以 UTF-8 编码打开 csv_path 指向的文件
-#     with open(csv_path, encoding='UTF8') as f:
-#         # 创建一个 CSV 阅读器来读取打开的文件
-#         csv_reader = csv.reader(f)
-#         # 将 CSV 阅读器读取的数据转换为一个列表
-#         data_list = list(csv_reader)
-#         # 打印出列表的前 100 行数据
-#         for i in range(min(100, len(data_list))):
-#             # print(data_list[i])
-#             pass
-
-
-# def setMeshPointAt(csvList, newMesh, vtxID, vertexID):
-#     count = len(csvList)
-
-#     for i in range(1, count):
-#         _csv = csvList[i]
-#         _vtx = _csv[vtxID]
-#         pos = FbxVector4(float(_csv[vertexID]),float(_csv[vertexID+1]),float(_csv[vertexID+2]))
-#         # print("第{0}顶点为:{1}".format(str(_vtx),str(pos)))
-
-#         newMesh.SetControlPointAt(pos, i-1)
-
-# 定义一个函数来计算4x4矩阵和向量的乘积
-def multiply_matrix_and_vector(matrix, vector):
-    result = np.zeros(4)
-    for i in range(4):
-        for j in range(4):
-            result[i] += matrix[i][j] * vector[j]
-    return result
-
-
-
-
-# 在你的函数中，对pos进行投影矩阵的逆矩阵变换
-def setMeshPointAt(csvList, newMesh, vtxID, vertexID, matrix_list):
-    count = len(csvList)
-    # 定义投影矩阵
-    # projection_matrix = np.array([[1.13, 0, 0, 0],
-    #                             [0, 2.32, 0, 0],
-    #                             [0, 0, 0, 1],
-    #                             [0, 0, 1, 0]])
+def set_mesh_point_at(csv_list: List[List[str]], new_mesh: FbxMesh, vtx_id: int, vertex_id: int, matrix_list: List[List[float]]):
+    """
+    设置网格的顶点位置
+    
+    Args:
+        csv_list: CSV数据列表
+        new_mesh: FBX网格对象
+        vtx_id: 顶点ID在CSV中的列索引
+        vertex_id: 顶点坐标在CSV中的起始列索引
+        matrix_list: 4x4变换矩阵
+    """
+    count = len(csv_list)
     projection_matrix = np.array(matrix_list)
-
-    # 计算投影矩阵的逆矩阵
     inverse_projection_matrix = np.linalg.inv(projection_matrix)
 
     for i in range(1, count):
-        _csv = csvList[i]
-        _vtx = _csv[vtxID]
-        pos = np.array([float(_csv[vertexID]), float(_csv[vertexID+1]), float(_csv[vertexID+2]), 1])
-        # 对pos进行投影矩阵的逆矩阵变换
+        _csv = csv_list[i]
+        pos = np.array([float(_csv[vertex_id]), float(_csv[vertex_id+1]), float(_csv[vertex_id+2]), 1])
         pos = np.dot(inverse_projection_matrix, pos)
-        newMesh.SetControlPointAt(FbxVector4(pos[0], pos[1], pos[2]*float(_csv[vertexID+3])), i-1)
+        new_mesh.SetControlPointAt(FbxVector4(pos[0], pos[1], pos[2]*float(_csv[vertex_id+3])), i-1)
 
-def setMeshPolygon(csvList, newMesh):
-    count = len(csvList)
-    for i in range(0, int(count/3)):
-        # 根据顶点构建面
-        newMesh.BeginPolygon(i)
-        newMesh.AddPolygon(3*i)
-        newMesh.AddPolygon(3*i+1)
-        newMesh.AddPolygon(3*i+2)
-        newMesh.EndPolygon()
-
-
-def setMeshUV(csvList, newMesh, uv0ID, vtxID=1, uv1ID=None):
-    count = len(csvList)
-    uv_layer = newMesh.CreateElementUV("uv0")
-    uv_layer.SetMappingMode(FbxCommon.FbxLayerElement.EMappingMode.eByPolygonVertex)
-    uv_layer.SetReferenceMode(FbxCommon.FbxLayerElement.EReferenceMode.eIndexToDirect)
-    uv_array = uv_layer.GetDirectArray()
-    uv_index_array = uv_layer.GetIndexArray()
-    uv_array.Resize(count-1)
-    uv_index_array.Resize(count-1)
-    for i in range(1, count):
-        _csv = csvList[i]
-        _vtx = _csv[vtxID]
-        uv0 = FbxVector2(float(_csv[uv0ID]), float(_csv[uv0ID+1]))
-        uv_array.SetAt(i-1, uv0)
-        uv_index_array.SetAt(i-1, i-1)
-
-
-def setMeshUVs(csvList, newMesh: FbxMesh, uvid_list, vtxID=1):
-    count = len(csvList)
+def set_mesh_polygon(csv_list: List[List[str]], new_mesh: FbxMesh):
+    """
+    设置网格的多边形
     
-    # 遍历每个 UV ID
-    for uv_index, uvID in enumerate(uvid_list):
+    Args:
+        csv_list: CSV数据列表
+        new_mesh: FBX网格对象
+    """
+    count = len(csv_list)
+    for i in range(0, int(count/3)):
+        new_mesh.BeginPolygon(i)
+        new_mesh.AddPolygon(3*i)
+        new_mesh.AddPolygon(3*i+1)
+        new_mesh.AddPolygon(3*i+2)
+        new_mesh.EndPolygon()
+
+def set_mesh_uvs(csv_list: List[List[str]], new_mesh: FbxMesh, uvid_list: List[int], vtx_id: int = 1):
+    """
+    设置网格的UV坐标
+    
+    Args:
+        csv_list: CSV数据列表
+        new_mesh: FBX网格对象
+        uvid_list: UV坐标在CSV中的列索引列表
+        vtx_id: 顶点ID在CSV中的列索引
+    """
+    count = len(csv_list)
+    
+    for uv_index, uv_id in enumerate(uvid_list):
         uv_layer_name = f"uv{uv_index}"
-        uv_layer = newMesh.CreateElementUV(uv_layer_name)
+        uv_layer = new_mesh.CreateElementUV(uv_layer_name)
         uv_layer.SetMappingMode(FbxCommon.FbxLayerElement.EMappingMode.eByPolygonVertex)
         uv_layer.SetReferenceMode(FbxCommon.FbxLayerElement.EReferenceMode.eIndexToDirect)
         uv_array = uv_layer.GetDirectArray()
@@ -108,138 +80,141 @@ def setMeshUVs(csvList, newMesh: FbxMesh, uvid_list, vtxID=1):
         uv_index_array.Resize(count - 1)
         
         for i in range(1, count):
-            _csv = csvList[i]
-            _vtx = _csv[vtxID]
-            uv = FbxVector2(float(_csv[uvID]), float(_csv[uvID + 1]))
+            uv = FbxVector2(float(csv_list[i][uv_id]), float(csv_list[i][uv_id + 1]))
             uv_array.SetAt(i - 1, uv)
             uv_index_array.SetAt(i - 1, i - 1)
 
-# 示例调用
-# csvList = [...]  # CSV 数据列表
-# newMesh = ...  # 新的网格对象
-# uvid_list = [2, 4]  # UV ID 列表，例如 [2, 4] 表示两套 UV
-# setMeshUV(csvList, newMesh, uvid_list)
-
-    # Set the second UV channel
-    # uv_layer1 = newMesh.CreateElementUV("uv1")
-    # uv_layer1.SetMappingMode(FbxCommon.FbxLayerElement.EMappingMode.eByPolygonVertex)
-    # uv_layer1.SetReferenceMode(FbxCommon.FbxLayerElement.EReferenceMode.eIndexToDirect)
-    # uv_array1 = uv_layer1.GetDirectArray()
-    # uv_index_array1 = uv_layer1.GetIndexArray()
-    # uv_array1.Resize(count-1)
-    # uv_index_array1.Resize(count-1)
-    # for i in range(1, count):
-    #     _csv = csvList[i]
-    #     uv1 = FbxVector2(float(_csv[uv0ID+2]), float(_csv[uv0ID+3]))
-    #     uv_array1.SetAt(i-1, uv1)
-    #     uv_index_array1.SetAt(i-1, i-1)
-
-
-
-def saveScene(pFilename, pFbxManager, pFbxScene, pAsASCII=False):
-    exporter = FbxExporter.Create(pFbxManager, '')
-    if pAsASCII:
-        asciiFormatIndex = getASCIIFormatIndex(pFbxManager)
-        isInitialized = exporter.Initialize(pFilename, asciiFormatIndex)
+def save_scene(p_filename: str, p_fbx_manager: FbxManager, p_fbx_scene: FbxScene, p_as_ascii: bool = False):
+    """
+    保存FBX场景到文件
+    
+    Args:
+        p_filename: 输出文件名
+        p_fbx_manager: FBX管理器
+        p_fbx_scene: FBX场景
+        p_as_ascii: 是否保存为ASCII格式
+    """
+    exporter = FbxExporter.Create(p_fbx_manager, '')
+    if p_as_ascii:
+        ascii_format_index = get_ascii_format_index(p_fbx_manager)
+        is_initialized = exporter.Initialize(p_filename, ascii_format_index)
     else:
-        isInitialized = exporter.Initialize(pFilename)
-    if not isInitialized:
+        is_initialized = exporter.Initialize(p_filename)
+    if not is_initialized:
         raise Exception('Exporter failed to initialize. Error returned: ' + str(exporter.GetStatus().GetErrorString()))
 
-    exporter.Export(pFbxScene)
+    exporter.Export(p_fbx_scene)
     exporter.Destroy()
 
-
-def getASCIIFormatIndex(pManager):
-    numFormats = pManager.GetIOPluginRegistry().GetWriterFormatCount()
-    formatIndex = pManager.GetIOPluginRegistry().GetNativeWriterFormat()
-    for i in range(numFormats):
-        if pManager.GetIOPluginRegistry().WriterIsFBX(i):
-            description = pManager.GetIOPluginRegistry().GetWriterFormatDescription(i)
-            if 'ascii' in description:
-                formatIndex = i
-                break
-    return formatIndex
-
-
-def setMeshNormal(csvList, newMesh, vtxID, normalID):
-    count = len(csvList)
+def get_ascii_format_index(p_manager: FbxManager):
+    """
+    获取ASCII格式的索引
     
-    normal_layer = newMesh.CreateElementNormal()
-    newMesh.RemoveElementNormal(newMesh.GetElementNormal(0))
-    # print(dir(FbxCommon.FbxLayerElement.EMappingMode))
+    Args:
+        p_manager: FBX管理器
+    
+    Returns:
+        ASCII格式的索引
+    """
+    num_formats = p_manager.GetIOPluginRegistry().GetWriterFormatCount()
+    format_index = p_manager.GetIOPluginRegistry().GetNativeWriterFormat()
+    for i in range(num_formats):
+        if p_manager.GetIOPluginRegistry().WriterIsFBX(i):
+            description = p_manager.GetIOPluginRegistry().GetWriterFormatDescription(i)
+            if 'ascii' in description:
+                format_index = i
+                break
+    return format_index
+
+def set_mesh_normal(csv_list: List[List[str]], new_mesh: FbxMesh, vtx_id: int, normal_id: int):
+    """
+    设置网格的法线
+    
+    Args:
+        csv_list: CSV数据列表
+        new_mesh: FBX网格对象
+        vtx_id: 顶点ID在CSV中的列索引
+        normal_id: 法线坐标在CSV中的起始列索引
+    """
+    count = len(csv_list)
+    
+    normal_layer = new_mesh.CreateElementNormal()
+    new_mesh.RemoveElementNormal(new_mesh.GetElementNormal(0))
     normal_layer.SetMappingMode(FbxCommon.FbxLayerElement.EMappingMode.eByControlPoint)
     normal_layer.SetReferenceMode(FbxCommon.FbxLayerElement.EReferenceMode.eDirect)
     normal_array = normal_layer.GetDirectArray()
     normal_array.Resize(count)
     for i in range(1, count):
-        _csv = csvList[i]
-        _vtx = _csv[vtxID]
-        normal = FbxVector4(float(_csv[normalID]), float(_csv[normalID+1]), float(_csv[normalID+2]))
-        newMesh.SetControlPointNormalAt(normal, int(_vtx))
+        _csv = csv_list[i]
+        _vtx = _csv[vtx_id]
+        normal = FbxVector4(float(_csv[normal_id]), float(_csv[normal_id+1]), float(_csv[normal_id+2]))
+        new_mesh.SetControlPointNormalAt(normal, int(_vtx))
         normal_array.SetAt(int(_vtx), normal)
 
-
-def csv_to_fbx(csv_path, fbx_path, position_id, normal_id, uv_ids, matrix_list=[]):
-    # 检查 csv_path 是否是一个存在的 CSV 文件
+@timer
+def csv_to_fbx(csv_path: str, fbx_path: str, position_id: int, normal_id: int, uv_ids: List[int], matrix_list: List[List[float]] = []):
+    """
+    将CSV文件转换为FBX文件
+    
+    Args:
+        csv_path: 输入CSV文件路径
+        fbx_path: 输出FBX文件路径
+        position_id: 顶点位置在CSV中的起始列索引
+        normal_id: 法线在CSV中的起始列索引
+        uv_ids: UV坐标在CSV中的列索引列表
+        matrix_list: 4x4变换矩阵
+    """
     if not os.path.isfile(csv_path) or not csv_path.endswith(".csv"):
-        print("找不到这个文件：{}".format(csv_path))
+        logg
         return
 
-    # # 创建一个 FbxManager
-    # manager = FbxManager.Create()
-    # # 创建一个 FbxScene
-    # scene = FbxScene.Create(manager, "MyScene")
-
-    manager, scene = FbxCommon.InitializeSdkObjects() # 初始化
-    # 创建一个 FbxMesh
+    manager, scene = FbxCommon.InitializeSdkObjects()
     mesh = FbxMesh.Create(scene, "MyMesh")
-    # 创建一个 FbxNode
     node = FbxNode.Create(scene, "MyNode")
-    # 将 mesh 添加到 node
     node.SetNodeAttribute(mesh)
-    # 将 node 添加到 scene
     scene.GetRootNode().AddChild(node)
 
-    # 读取 CSV 文件
     with open(csv_path, encoding='UTF8') as f:
         csv_reader = csv.reader(f)
         data_list = list(csv_reader)
         if len(data_list) < 1:
             return
 
-    # 设置 mesh 的顶点、面、UV 和法线
-    setMeshPointAt(data_list, mesh, vtxID=1, vertexID=position_id, matrix_list=matrix_list)
-    setMeshPolygon(data_list, mesh)
-    setMeshUVs(data_list, mesh, uvid_list=uv_ids)
-    setMeshNormal(data_list, mesh, vtxID=1, normalID=normal_id)
+    set_mesh_point_at(data_list, mesh, vtx_id=1, vertex_id=position_id, matrix_list=matrix_list)
+    set_mesh_polygon(data_list, mesh)
+    set_mesh_uvs(data_list, mesh, uvid_list=uv_ids)
+    set_mesh_normal(data_list, mesh, vtx_id=1, normal_id=normal_id)
 
-    # 保存 scene 到 FBX 文件
-    saveScene(fbx_path, manager, scene)
+    save_scene(fbx_path, manager, scene)
 
-
-
-# csv_path = r"D:\Projects\Dimension\rdcs\out2_in\5646_out.csv"  # 请替换为你的CSV文件路径
-# fbx_path = r"D:\Projects\Dimension\rdcs\out2_in\5646_out.fbx"
-# csv_to_fbx(csv_path, fbx_path)
-
-def batch_csv_to_fbx(directory, draw_id_start, draw_id_end, position_id, normal_id, uv_ids, matrix_list=[]):
+def batch_csv_to_fbx(directory: str, draw_id_start: int, draw_id_end: int, position_id: int, normal_id: int, uv_ids: List[int], matrix_list: List[List[float]] = []):
+    """
+    批量处理CSV文件并转换为FBX文件
+    
+    Args:
+        directory: 包含CSV文件的目录
+        draw_id_start: 起始绘制ID
+        draw_id_end: 结束绘制ID
+        position_id: 顶点位置在CSV中的起始列索引
+        normal_id: 法线在CSV中的起始列索引
+        uv_ids: UV坐标在CSV中的列索引列表
+        matrix_list: 4x4变换矩阵
+    """
     for root, dirs, files in os.walk(directory):
         for file in files:
             if file.endswith(".csv"):
-                file_name = int(os.path.basename(file).replace(".csv", ""))
-                if file_name >= draw_id_start and file_name <= draw_id_end:
+                file_name = os.path.basename(file).replace(".csv", "")
+                fbx_file_name = ""
+                for char in file_name:
+                    if char.isdigit():
+                        fbx_file_name += char
+                if draw_id_start <= int(fbx_file_name) <= draw_id_end:
                     csv_path = os.path.join(root, file)
-                    # fbx_path = os.path.splitext(csv_path)[0] + ".fbx"
                     fbx_folder = os.path.join(directory, 'outputs')
                     if not os.path.exists(fbx_folder):
                         os.makedirs(fbx_folder)
 
-                    fbx_path = os.path.join(fbx_folder, str(file_name)+".fbx")
+                    fbx_path = os.path.join(fbx_folder, f"{fbx_file_name}.fbx")
                     print(fbx_path)
                     
                     csv_to_fbx(csv_path, fbx_path, position_id, normal_id, uv_ids, matrix_list=matrix_list)
-
-# 使用示例
-# directory = r"D:\Projects\Dimension\rdcs\out2"  # 请替换为你的文件夹路径
-# batch_csv_to_fbx(directory)
