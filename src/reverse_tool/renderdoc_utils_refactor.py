@@ -6,10 +6,34 @@ from contextlib import contextmanager
 from .debug_utils import timer, logger
 from typing import TYPE_CHECKING
 
+# 由于使用了比较特殊的方式导入renderdoc模块，所以这里需要使用TYPE_CHECKING来让该文件中的相关代码正常提示和跳转
 if TYPE_CHECKING:
     import renderdoc as rd
+    
+    def import_renderdoc_from(pymodules_dir: str, dll_dir: str):
+        '''该上下文管理器用于导入、初始化并在结束后销毁renderdoc，需要传入renderdoc提供的python模块路径以及dll路径
+        这是因为renderdoc的python模块只是一个wrapper，实际的功能是由dll提供的
+        
+        Args:
+            pymodules_dir (str): renderdoc提供的python模块所在文件夹的路径
+            dll_dir (str): renderdoc提供的dll所在文件夹的路径
+        
+        使用方式: with import_renderdoc_from(pymodules_dir, dll_dir) as rd:
+        
+        现在该管理环境的方式还不完美，虽然该函数内使用了global试图解决该问题，但是依然无法在定义该函数的文件中正常使用rd，
+        比如无法在该文件中正常正常写一个继承自renderdoc模块其中的类的类，这是因为python在import一个文件时会执行其中的代码，
+        而在正确import renderdoc之前rd是不存在的，所以会报错，目前的解决方式是将需要继承自renderdoc模块中的类的类放在该函数中，
+        比如这里的MeshData，虽然由于python的运行机制，实际上不继承程序也能够正常运行，但是官方示例是这么做的，后续也需要找到更好的解决方案
+        
+        '''
+        return rd
+    
+    class MeshData(rd.MeshFormat):
+        indexOffset = 0
+        name = ''
+        
 
-if not TYPE_CHECKING: # pylance的类型检查很怪，只有让pylance不检查这里底下的跳转才能正常跳转，实际该函数是会执行的
+if not TYPE_CHECKING:
     @contextmanager
     def import_renderdoc_from(pymodules_dir: str, dll_dir: str):
         sys.path.append(pymodules_dir)
@@ -22,19 +46,22 @@ if not TYPE_CHECKING: # pylance的类型检查很怪，只有让pylance不检查
         global rd
         rd = renderdoc
         rd.InitialiseReplay(rd.GlobalEnvironment(), [])
+        
+        
+        global MeshData
+        class MeshData(rd.MeshFormat):
+            indexOffset = 0
+            name = ''
+        
 
         try:
             yield rd
         finally:
             shutdown_renderdoc()
             pass
-
+        
 def shutdown_renderdoc():
     rd.ShutdownReplay()
-
-class MeshData():
-    indexOffset = 0
-    name = ''
 
 class CaptureManager:
     def __init__(self, filename: str):
@@ -45,6 +72,7 @@ class CaptureManager:
         self.mesh_manager = None
 
     def __enter__(self):
+        logger.debug(f"Initializing CaptureManager with {self.filename}")
         self.cap = rd.OpenCaptureFile()
         result = self.cap.OpenFile(self.filename, '', None)
         if result != rd.ResultCode.Succeeded:
@@ -57,6 +85,7 @@ class CaptureManager:
         self.controller = controller
         self.texture_manager = TextureManager(self.controller)
         self.mesh_manager = MeshManager(self.controller)
+        logger.debug(f"initialized CaptureManager with {self.filename}")
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -137,7 +166,7 @@ class MeshManager:
         ib = state.GetIBuffer()
         vbs = state.GetVBuffers()
         attrs = state.GetVertexInputs()
-        input_attrs: MeshData = []
+        input_attrs: "list[MeshData]" = []
 
         for attr in attrs:
             if attr.perInstance:
@@ -165,7 +194,6 @@ class MeshManager:
 
         return input_attrs
 
-    @timer
     def get_single_mesh_output(self, postvs):
         output_attrs: list[MeshData] = []
         posidx = 0
@@ -224,7 +252,7 @@ class MeshManager:
             
         return output_attrs
 
-    def get_indices(self, mesh_attr: MeshData) -> list[int]:
+    def get_indices(self, mesh_attr: "MeshData") -> list[int]:
         indexFormat = 'B'
         if mesh_attr.indexByteStride == 2:
             indexFormat = 'H'
@@ -262,8 +290,8 @@ class MeshManager:
                     self.save_single_mesh_data(mesh_attrs, save_dir, eid, is_input=False)
                     logger.debug(f"finish saving mesh output at {eid}")
         
-    # @timer # 4595 46.5096s, 4600, 9.0270s, 4605, 0.3212s
-    def save_single_mesh_data(self, mesh_attrs: list[MeshData] | None, save_dir: str, eid: int, is_input: bool):
+    @timer # 4595 46.5096s, 4600, 9.0270s, 4605, 0.3212s
+    def save_single_mesh_data(self, mesh_attrs: "list[MeshData] | None", save_dir: str, eid: int, is_input: bool):
         if mesh_attrs is None:
             logger.debug(f"Mesh data is None at {eid}")
             return
@@ -293,13 +321,14 @@ class MeshManager:
                 for attr in mesh_attrs:
                     if not attr.format.Special():
                         offset = attr.vertexByteOffset + attr.vertexByteStride * idx
-                        data = self.controller.GetBufferData(attr.vertexResourceId, offset, 64)
+                        # todo: 即使四位属性都是双精度浮点数( 64 bits )，大小也不会超过 32 bytes 所以这里直接取32，后续还可以优化，提前cache buffer
+                        data = self.controller.GetBufferData(attr.vertexResourceId, offset, 32)
                         value = self.unpack_data(attr.format, data)
 
                         indiceArray.extend(value[:attr.format.compCount])
                 writer.writerow(indiceArray)
     
-    def unpack_data(self, fmt: "rd.MeshFormat", data):
+    def unpack_data(self, fmt: "MeshData", data):
         if fmt.Special():
             if fmt.type == rd.ResourceFormatType.R10G10B10A2:
                 return self._unpack_r10g10b10a2(data, fmt.compType == rd.CompType.UNorm)
@@ -319,7 +348,7 @@ class MeshManager:
         vertexFormat = str(fmt.compCount) + formatChars[fmt.compType][fmt.compByteWidth]
         value = struct.unpack_from(vertexFormat, data, 0)
 
-        if fmt.compType == rd.CompType.UNorm and fmt.type != rd.ResourceFormatType.R10G10B10A2:
+        if fmt.compType == rd.CompType.UNorm and fmt.type:
             divisor = float((2 ** (fmt.compByteWidth * 8)) - 1)
             value = tuple(float(i) / divisor for i in value)
         elif fmt.compType == rd.CompType.SNorm:

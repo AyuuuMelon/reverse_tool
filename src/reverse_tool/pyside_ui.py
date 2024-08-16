@@ -135,7 +135,6 @@ class MainWindow(QMainWindow):
 
         self.progress_bar = QProgressBar(self)
         
-
         # 创建一个按钮
         self.start_button = QPushButton("CSV文件分批", self)
         self.start_button.setMinimumHeight(40)
@@ -278,7 +277,7 @@ class MainWindow(QMainWindow):
 
             self.table_widget = self.load_csv(self.table_widget, files[0])
 
-            grid_layout.addWidget(self.table_widget, 0, 0,1,-1)
+            grid_layout.addWidget(self.table_widget, 0, 0, 1,-1)
 
             # 创建三个标签和三个文本输入框
             for i, label_text in enumerate(["position", "normal", "uv"]):

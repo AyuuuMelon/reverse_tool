@@ -5,20 +5,7 @@ from typing import List, Union
 from fbx import FbxVector4, FbxLayerElement, FbxExporter, FbxVector2
 from fbx import FbxManager, FbxScene, FbxMesh, FbxNode
 from reverse_tool import FbxCommon
-from .debug_utils import timer
-
-def multiply_matrix_and_vector(matrix: np.ndarray, vector: np.ndarray):
-    """
-    计算4x4矩阵和向量的乘积
-    
-    Args:
-        matrix: 4x4 numpy数组
-        vector: 4x1 numpy数组
-    
-    Returns:
-        4x1 numpy数组，表示矩阵和向量的乘积
-    """
-    return np.dot(matrix, vector)
+from .debug_utils import timer, logger
 
 def set_mesh_point_at(csv_list: List[List[str]], new_mesh: FbxMesh, vtx_id: int, vertex_id: int, matrix_list: List[List[float]]):
     """
@@ -29,17 +16,18 @@ def set_mesh_point_at(csv_list: List[List[str]], new_mesh: FbxMesh, vtx_id: int,
         new_mesh: FBX网格对象
         vtx_id: 顶点ID在CSV中的列索引
         vertex_id: 顶点坐标在CSV中的起始列索引
-        matrix_list: 4x4变换矩阵
+        matrix_list: 4x4相机投影矩阵(MVP中的P)
     """
-    count = len(csv_list)
+    count = len(csv_list) # 多少行，即多少个顶点
     projection_matrix = np.array(matrix_list)
     inverse_projection_matrix = np.linalg.inv(projection_matrix)
 
     for i in range(1, count):
         _csv = csv_list[i]
-        pos = np.array([float(_csv[vertex_id]), float(_csv[vertex_id+1]), float(_csv[vertex_id+2]), 1])
-        pos = np.dot(inverse_projection_matrix, pos)
-        new_mesh.SetControlPointAt(FbxVector4(pos[0], pos[1], pos[2]*float(_csv[vertex_id+3])), i-1)
+        new_mesh.SetControlPointAt(FbxVector4(float(_csv[vertex_id])/1.3, float(_csv[vertex_id+1])/3, float(_csv[vertex_id+3])), i-1)
+        # pos = np.array([float(_csv[vertex_id]), float(_csv[vertex_id+1]), 1, 1])
+        # pos = np.dot(inverse_projection_matrix, pos)  
+        # new_mesh.SetControlPointAt(FbxVector4(pos[0], pos[1], float(_csv[vertex_id+3])), i-1)
 
 def set_mesh_polygon(csv_list: List[List[str]], new_mesh: FbxMesh):
     """
@@ -165,7 +153,7 @@ def csv_to_fbx(csv_path: str, fbx_path: str, position_id: int, normal_id: int, u
         matrix_list: 4x4变换矩阵
     """
     if not os.path.isfile(csv_path) or not csv_path.endswith(".csv"):
-        logg
+    
         return
 
     manager, scene = FbxCommon.InitializeSdkObjects()
@@ -198,7 +186,7 @@ def batch_csv_to_fbx(directory: str, draw_id_start: int, draw_id_end: int, posit
         position_id: 顶点位置在CSV中的起始列索引
         normal_id: 法线在CSV中的起始列索引
         uv_ids: UV坐标在CSV中的列索引列表
-        matrix_list: 4x4变换矩阵
+        matrix_list: 4x4相机投影矩阵(MVP中的P)
     """
     for root, dirs, files in os.walk(directory):
         for file in files:
