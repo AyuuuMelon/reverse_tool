@@ -1,11 +1,13 @@
 import os
 import csv
 import numpy as np
-from typing import List, Union
 from fbx import FbxVector4, FbxLayerElement, FbxExporter, FbxVector2
 from fbx import FbxManager, FbxScene, FbxMesh, FbxNode
 from reverse_tool import FbxCommon
-from .debug_utils import timer
+from .debug_utils import timer, logger
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import renderdoc as rd
 
 def multiply_matrix_and_vector(matrix: np.ndarray, vector: np.ndarray):
     """
@@ -20,7 +22,8 @@ def multiply_matrix_and_vector(matrix: np.ndarray, vector: np.ndarray):
     """
     return np.dot(matrix, vector)
 
-def set_mesh_point_at(csv_list: List[List[str]], new_mesh: FbxMesh, vtx_id: int, vertex_id: int, matrix_list: List[List[float]]):
+def set_mesh_point_at(csv_list: list[list[str]], new_mesh: FbxMesh, vertex_id: int,
+                      matrix_list: list[list[float]] | None = None):
     """
     设置网格的顶点位置
     
@@ -37,11 +40,11 @@ def set_mesh_point_at(csv_list: List[List[str]], new_mesh: FbxMesh, vtx_id: int,
 
     for i in range(1, count):
         _csv = csv_list[i]
-        pos = np.array([float(_csv[vertex_id]), float(_csv[vertex_id+1]), float(_csv[vertex_id+2]), 1])
-        pos = np.dot(inverse_projection_matrix, pos)
-        new_mesh.SetControlPointAt(FbxVector4(pos[0], pos[1], pos[2]*float(_csv[vertex_id+3])), i-1)
+        pos = np.array([float(_csv[vertex_id]), float(_csv[vertex_id+1]), 1, float(_csv[vertex_id+3])])
+        pos = np.dot(pos, inverse_projection_matrix)    
+        new_mesh.SetControlPointAt(FbxVector4(pos[0], pos[1], pos[2]), i-1)
 
-def set_mesh_polygon(csv_list: List[List[str]], new_mesh: FbxMesh):
+def set_mesh_polygon(csv_list: list[list[str]], new_mesh: FbxMesh):
     """
     设置网格的多边形
     
@@ -57,7 +60,7 @@ def set_mesh_polygon(csv_list: List[List[str]], new_mesh: FbxMesh):
         new_mesh.AddPolygon(3*i+2)
         new_mesh.EndPolygon()
 
-def set_mesh_uvs(csv_list: List[List[str]], new_mesh: FbxMesh, uvid_list: List[int], vtx_id: int = 1):
+def set_mesh_uvs(csv_list: list[list[str]], new_mesh: FbxMesh, uvid_list: list[int], vtx_id: int = 1):
     """
     设置网格的UV坐标
     
@@ -126,7 +129,7 @@ def get_ascii_format_index(p_manager: FbxManager):
                 break
     return format_index
 
-def set_mesh_normal(csv_list: List[List[str]], new_mesh: FbxMesh, vtx_id: int, normal_id: int):
+def set_mesh_normal(csv_list: list[list[str]], new_mesh: FbxMesh, vtx_id: int, normal_id: int | None = None):
     """
     设置网格的法线
     
@@ -136,6 +139,10 @@ def set_mesh_normal(csv_list: List[List[str]], new_mesh: FbxMesh, vtx_id: int, n
         vtx_id: 顶点ID在CSV中的列索引
         normal_id: 法线坐标在CSV中的起始列索引
     """
+    if normal_id == 0:
+        logger.debug("No normal data id provided")
+        return
+    
     count = len(csv_list)
     
     normal_layer = new_mesh.CreateElementNormal()
@@ -152,7 +159,7 @@ def set_mesh_normal(csv_list: List[List[str]], new_mesh: FbxMesh, vtx_id: int, n
         normal_array.SetAt(int(_vtx), normal)
 
 @timer
-def csv_to_fbx(csv_path: str, fbx_path: str, position_id: int, normal_id: int, uv_ids: List[int], matrix_list: List[List[float]] = []):
+def csv_to_fbx(csv_path: str, fbx_path: str, position_id: int, normal_id: int, uv_ids: list[int], matrix_list: list[list[float]] = []):
     """
     将CSV文件转换为FBX文件
     
@@ -165,7 +172,6 @@ def csv_to_fbx(csv_path: str, fbx_path: str, position_id: int, normal_id: int, u
         matrix_list: 4x4变换矩阵
     """
     if not os.path.isfile(csv_path) or not csv_path.endswith(".csv"):
-        logg
         return
 
     manager, scene = FbxCommon.InitializeSdkObjects()
@@ -180,14 +186,18 @@ def csv_to_fbx(csv_path: str, fbx_path: str, position_id: int, normal_id: int, u
         if len(data_list) < 1:
             return
 
-    set_mesh_point_at(data_list, mesh, vtx_id=1, vertex_id=position_id, matrix_list=matrix_list)
+    set_mesh_point_at(data_list, mesh, vertex_id=position_id, matrix_list=matrix_list)
     set_mesh_polygon(data_list, mesh)
     set_mesh_uvs(data_list, mesh, uvid_list=uv_ids)
     set_mesh_normal(data_list, mesh, vtx_id=1, normal_id=normal_id)
 
     save_scene(fbx_path, manager, scene)
 
-def batch_csv_to_fbx(directory: str, draw_id_start: int, draw_id_end: int, position_id: int, normal_id: int, uv_ids: List[int], matrix_list: List[List[float]] = []):
+def batch_csv_to_fbx(directory: str,
+                     draw_id_start: int, draw_id_end: int,
+                     position_id: int, normal_id: int, uv_ids: list[int],
+                     matrix_list: list[list[float]] | None = None,
+                     camera_data = None):
     """
     批量处理CSV文件并转换为FBX文件
     
@@ -198,8 +208,43 @@ def batch_csv_to_fbx(directory: str, draw_id_start: int, draw_id_end: int, posit
         position_id: 顶点位置在CSV中的起始列索引
         normal_id: 法线在CSV中的起始列索引
         uv_ids: UV坐标在CSV中的列索引列表
-        matrix_list: 4x4变换矩阵
+        matrix_list: 4x4投影矩阵
+        camera_data: 猜测投影矩阵使用的相机数据
     """
+    # renderdoc中还原透视投影矩阵的函数
+    # Matrix4f Matrix4f::Perspective(const float degfov, const float N, const float F, const float A)
+    # {
+    #   const float radfov = degfov * (3.1415926535f / 180.0f);
+    #   float S = 1 / tanf(radfov * 0.5f);
+
+    #   float persp[16] = {
+    #       S / A,       0.0f,        0.0f,               0.0f,
+    #       0.0f,        S,           0.0f,               0.0f,
+    #       0.0f,        0.0f,        F / (F - N),        1.0f,
+    #       0.0f,        0.0f,        -(F * N) / (F - N), 0.0f,
+    #   };
+
+    #   return Matrix4f(persp);
+    # }
+    if matrix_list is None and camera_data is None:
+        logger.error("Matrix list or FOV is required")
+        return
+    if matrix_list is None and camera_data is not None:
+        radfov = camera_data.fov * (3.1415926535 / 180.0)
+        S = 1 / np.tan(radfov * 0.5)
+        N = camera_data.near_plane
+        F = camera_data.far_plane
+        A = camera_data.width / camera_data.height
+        matrix_list = [
+            [S / A,       0.0,        0.0,                0.0],
+            [0.0,         S,          0.0,                0.0],
+            [0.0,         0.0,        F / (F - N),        1.0],
+            [0.0,         0.0,        -(F * N) / (F - N), 0.0]
+        ]
+        logger.debug(f"camera_data: {camera_data}")
+        
+    logger.debug(f"Matrix list: {matrix_list}")
+        
     for root, dirs, files in os.walk(directory):
         for file in files:
             if file.endswith(".csv"):
@@ -215,6 +260,5 @@ def batch_csv_to_fbx(directory: str, draw_id_start: int, draw_id_end: int, posit
                         os.makedirs(fbx_folder)
 
                     fbx_path = os.path.join(fbx_folder, f"{fbx_file_name}.fbx")
-                    print(fbx_path)
-                    
+                    logger.info(f"Converting {file} to {fbx_file_name}.fbx")
                     csv_to_fbx(csv_path, fbx_path, position_id, normal_id, uv_ids, matrix_list=matrix_list)

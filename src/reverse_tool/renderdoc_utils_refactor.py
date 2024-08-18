@@ -9,9 +9,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import renderdoc as rd
 
-if not TYPE_CHECKING: # pylance的类型检查很怪，只有让pylance不检查这里底下的跳转才能正常跳转，实际该函数是会执行的
+if not TYPE_CHECKING:
     @contextmanager
-    def import_renderdoc_from(pymodules_dir: str, dll_dir: str):
+    def import_renderdoc_from(pymodules_dir: str = None, dll_dir: str = None):
+        if pymodules_dir is not None and dll_dir is None:
+            dll_dir = pymodules_dir
         sys.path.append(pymodules_dir)
         os.environ["PATH"] = os.pathsep.join([os.environ["PATH"], dll_dir])
         if sys.platform == 'win32' and sys.version_info >= (3, 8):
@@ -57,6 +59,7 @@ class CaptureManager:
         self.controller = controller
         self.texture_manager = TextureManager(self.controller)
         self.mesh_manager = MeshManager(self.controller)
+        self.eid_to_action = {action.eventId: action for action in self.controller.GetRootActions()}  
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -64,6 +67,9 @@ class CaptureManager:
             self.controller.Shutdown()
         if self.cap:
             self.cap.Shutdown()
+            
+    def get_controller(self):
+        return self.controller
 
     def save_textures(self, begin_eid: int, end_eid: int, save_dir: str, save_inputs: bool = True, save_outputs: bool = False):
         self.texture_manager.save_textures(begin_eid, end_eid, save_dir, save_inputs, save_outputs)
@@ -77,6 +83,7 @@ class TextureManager:
         self.textures = controller.GetTextures()
         self.texsave = rd.TextureSave()
 
+    @timer
     def save_textures(self, begin_eid: int, end_eid: int, save_dir: str, save_inputs: bool = True, save_outputs: bool = False):
         for action in self.controller.GetRootActions():
             if begin_eid <= action.eventId <= end_eid:
@@ -165,7 +172,7 @@ class MeshManager:
 
         return input_attrs
 
-    @timer
+    # @timer
     def get_single_mesh_output(self, postvs):
         output_attrs: list[MeshData] = []
         posidx = 0
@@ -258,11 +265,12 @@ class MeshManager:
                 if save_outputs:
                     logger.debug(f"Decoding mesh output at {eid}: {action.GetName(self.controller.GetStructuredFile())}")
                     postvs = self.controller.GetPostVSData(0, 0, rd.MeshDataStage.VSOut)
+
                     mesh_attrs = self.get_single_mesh_output(postvs)
                     self.save_single_mesh_data(mesh_attrs, save_dir, eid, is_input=False)
                     logger.debug(f"finish saving mesh output at {eid}")
         
-    # @timer # 4595 46.5096s, 4600, 9.0270s, 4605, 0.3212s
+    @timer
     def save_single_mesh_data(self, mesh_attrs: list[MeshData] | None, save_dir: str, eid: int, is_input: bool):
         if mesh_attrs is None:
             logger.debug(f"Mesh data is None at {eid}")

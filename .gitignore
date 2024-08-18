@@ -1,2 +1,3 @@
 resources/*
 src/reverse_tool/__pycache__/*
+renderdoc_src/*

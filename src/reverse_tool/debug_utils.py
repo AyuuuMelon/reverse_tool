@@ -8,7 +8,7 @@ def timer(func):
         start_time = time.time()
         result = func(*args, **kwargs)
         end_time = time.time()
-        logging.debug(f"{func.__name__} took {end_time - start_time:.4f} seconds to execute")
+        logging.debug(f"{func.__name__} took {end_time - start_time:.5f} seconds to execute")
         return result
     return wrapper
 
