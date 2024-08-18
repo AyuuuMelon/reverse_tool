@@ -19,12 +19,9 @@ from PySide6.QtCore import Slot, Signal
 import os
 import csv
 from collections import defaultdict
-from fbx_utils import batch_csv_to_fbx
-from renderdoc_utils_refactor import import_renderdoc_from, CaptureManager
+from .fbx_utils import batch_csv_to_fbx
 
 class CustomProgressBar(QWidget):
-
-
     def __init__(self, parent=None):
         super(CustomProgressBar, self).__init__(parent)
         # 创建一个QGridself.layout作为布局
@@ -303,7 +300,7 @@ class MainWindow(QMainWindow):
             self.progress_bar.setValue(value)
             pro_id += 1
 
-if __name__ == "__main__":
+def main():
     # 创建应用实例
     app = QApplication([])
 

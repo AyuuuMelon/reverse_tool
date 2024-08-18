@@ -7,6 +7,7 @@ from .fbx_utils import (batch_csv_to_fbx)
 
 from typing import TYPE_CHECKING
 from dataclasses import dataclass
+from reverse_tool import pyside_ui
 
 @dataclass
 class CameraData:
@@ -48,4 +49,5 @@ def main():
             # ])
     
 if __name__ == "__main__":
-    main()
+    # main()
+    pyside_ui.main()

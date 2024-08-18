@@ -169,7 +169,7 @@ def csv_to_fbx(csv_path: str, fbx_path: str, position_id: int, normal_id: int, u
         position_id: 顶点位置在CSV中的起始列索引
         normal_id: 法线在CSV中的起始列索引
         uv_ids: UV坐标在CSV中的列索引列表
-        matrix_list: 4x4变换矩阵
+        matrix_list: 4x4投影矩阵
     """
     if not os.path.isfile(csv_path) or not csv_path.endswith(".csv"):
         return
