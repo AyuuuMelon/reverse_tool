@@ -45,9 +45,13 @@ if not TYPE_CHECKING:
         
         logger.debug("importing renderdoc from {pymodules_dir}" and {dll_dir})
         import renderdoc
-        global rd
+        global rd, MeshData
         rd = renderdoc
         rd.InitialiseReplay(rd.GlobalEnvironment(), [])
+        
+        class MeshData(rd.MeshFormat):
+            indexOffset = 0
+            name = ''
 
         try:
             yield rd
@@ -135,6 +139,7 @@ class TextureManager:
         file_name = f"{texture_type}_{resouce_id}_{texture_format}"
 
         self.texsave.mip = 0
+        # Todo: 保存所有的slice
         self.texsave.slice.sliceIndex = 0
         
         self.texsave.alpha = rd.AlphaMapping.BlendToCheckerboard

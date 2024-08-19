@@ -19,17 +19,19 @@ class CameraData:
 
 def main():
     renderdoc_dir = os.path.abspath(r"..\..\reverse_tool\renderdoc")
-    rdc_file_path = r"your\rdc\file\path.rdc"
-    export_dir = r"your\export\dir"
-    begin_eid = 1423
+    rdc_file_path = r"D:\reverse_tool\resources\DuneSpiceWars_OpenGL.rdc"
+    export_dir = r"D:\reverse_tool\resources"
+    begin_eid = 206
     end_eid = 1757
+    save_input_textures, save_output_textures = True, False
+    save_input_mesh_data, save_output_mesh_data = False, True
             
     with import_renderdoc_from(renderdoc_dir) as rd:  
         if TYPE_CHECKING:
             import renderdoc as rd   
         with CaptureManager(rdc_file_path) as cap:
-            cap.save_textures(begin_eid, end_eid, export_dir, save_inputs=True, save_outputs=False)
-            cap.save_mesh_data(begin_eid, end_eid, export_dir, save_inputs=False, save_outputs=True)
+            cap.save_textures(begin_eid, end_eid, export_dir, save_input_textures, save_output_textures)
+            cap.save_mesh_data(begin_eid, end_eid, export_dir, save_input_mesh_data, save_output_mesh_data)
             
             controller = cap.get_controller()
             postvs = controller.GetPostVSData(0, 0, rd.MeshDataStage.VSOut)
@@ -49,5 +51,5 @@ def main():
             # ])
     
 if __name__ == "__main__":
-    # main()
-    pyside_ui.main()
+    main()
+    # pyside_ui.main()

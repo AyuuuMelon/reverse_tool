@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import (QApplication, QDialog, QWidget, QVBoxLayout, QHBoxLayout,
-                               QRadioButton, QStackedWidget, QLabel, QButtonGroup,
+                               QRadioButton, QSpinBox, QLabel, QButtonGroup,
                                QTabWidget, QFileDialog, QLineEdit, QPushButton,
                                QCheckBox
                                )
@@ -56,6 +56,8 @@ class RDCDataExtractor(QWidget):
         output_path_layout.addWidget(self.output_path)
         output_path_layout.addWidget(browse_button)
         
+        start_eid = QSpinBox()
+        
         # 创建多选按钮
         input_texure_checkbox = QCheckBox("输入纹理")
         output_texture_checkbox = QCheckBox("输出纹理")
@@ -108,15 +110,53 @@ class CSVAttributeMapper(QWidget):
         
         self.setLayout(main_layout)
         
+class PositionReconstructor_VSIn(QWidget):
+    def __init__(self):
+        super().__init__()
+        main_layout = QVBoxLayout()
+        
+        label = QLabel("PositionReconstructor_VSIn")
+        main_layout.addWidget(label)
+        
+        self.setLayout(main_layout)
+        
+class PositionReconstructor_VSOut(QWidget):
+    def __init__(self):
+        super().__init__()
+        main_layout = QVBoxLayout()
+        
+        label = QLabel("PositionReconstructor_VSOut")
+        main_layout.addWidget(label)
+        
+        self.setLayout(main_layout)
+        
 class PositionReconstructor(QWidget):
     def __init__(self):
         super().__init__()
         main_layout = QVBoxLayout()
         
-        label = QLabel("CSVAttributeMapper")
-        main_layout.addWidget(label)
+        vsin_radio = QRadioButton("从输入网格CSV数据重建")
+        vsout_radio = QRadioButton("从输出网格CSV数据重建")
+        
+        button_group = QButtonGroup(self)
+        button_group.addButton(vsin_radio)
+        button_group.addButton(vsout_radio)
+        
+        self.vsin_widget = PositionReconstructor_VSIn()
+        self.vsout_widget = PositionReconstructor_VSOut()
+        
+        main_layout.addWidget(vsin_radio)
+        main_layout.addWidget(vsout_radio)
+        main_layout.addWidget(self.vsin_widget)
+        main_layout.addWidget(self.vsout_widget)
         
         self.setLayout(main_layout)
+        
+        # 初始状态
+        vsin_radio.setChecked(False)
+        vsout_radio.setChecked(True)
+        self.vsin_widget.hide()
+        self.vsout_widget.show()
 
 class RDCToCSVToFBX(QWidget):
     def __init__(self):
@@ -125,15 +165,15 @@ class RDCToCSVToFBX(QWidget):
         main_layout = QVBoxLayout()
         
         file_selector = StepLabel(FileSelector(), "step1: 选择.rdc文件")
-        rdc_data_extractor = StepLabel(RDCDataExtractor(), "step2: 保存纹理与CSV网格数据")
-        csv_attr_mapper = StepLabel(CSVAttributeMapper(), "step3: 选择生成3D模型信息")
+        rdc_data_extractor = StepLabel(RDCDataExtractor(), "step2: 保存纹理与网格CSV数据")
+        csv_attr_mapper = StepLabel(CSVAttributeMapper(), "step3: 选择需要从网格CSV数据中提取的属性")
+        pos_reconstructor = StepLabel(PositionReconstructor(), "step4: 重建顶点位置")
         
-        # 将单选按钮布局和 stack 添加到主布局
         main_layout.addWidget(file_selector)
         main_layout.addWidget(rdc_data_extractor)
         main_layout.addWidget(csv_attr_mapper)
+        main_layout.addWidget(pos_reconstructor)
 
-        # 设置主布局
         self.setLayout(main_layout)
 
 class RDCToCSV(QWidget):
