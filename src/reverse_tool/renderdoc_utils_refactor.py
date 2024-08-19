@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING
 # 由于使用了比较特殊的方式导入renderdoc模块，所以这里需要使用TYPE_CHECKING来让该文件中的相关代码正常提示和跳转
 if TYPE_CHECKING:
     import renderdoc as rd
-    
+
+if not TYPE_CHECKING: # pylance的类型检查很怪，只有让pylance不检查这里底下的跳转才能正常跳转，实际该函数是会执行的
+    @contextmanager
     def import_renderdoc_from(pymodules_dir: str, dll_dir: str):
         '''该上下文管理器用于导入、初始化并在结束后销毁renderdoc，需要传入renderdoc提供的python模块路径以及dll路径
         这是因为renderdoc的python模块只是一个wrapper，实际的功能是由dll提供的
@@ -35,7 +37,9 @@ if TYPE_CHECKING:
 
 if not TYPE_CHECKING:
     @contextmanager
-    def import_renderdoc_from(pymodules_dir: str, dll_dir: str):
+    def import_renderdoc_from(pymodules_dir: str = None, dll_dir: str = None):
+        if pymodules_dir is not None and dll_dir is None:
+            dll_dir = pymodules_dir
         sys.path.append(pymodules_dir)
         os.environ["PATH"] = os.pathsep.join([os.environ["PATH"], dll_dir])
         if sys.platform == 'win32' and sys.version_info >= (3, 8):
@@ -93,6 +97,9 @@ class CaptureManager:
             self.controller.Shutdown()
         if self.cap:
             self.cap.Shutdown()
+            
+    def get_controller(self):
+        return self.controller
 
     def save_textures(self, begin_eid: int, end_eid: int, save_dir: str, save_inputs: bool = True, save_outputs: bool = False):
         self.texture_manager.save_textures(begin_eid, end_eid, save_dir, save_inputs, save_outputs)
@@ -106,6 +113,7 @@ class TextureManager:
         self.textures = controller.GetTextures()
         self.texsave = rd.TextureSave()
 
+    @timer
     def save_textures(self, begin_eid: int, end_eid: int, save_dir: str, save_inputs: bool = True, save_outputs: bool = False):
         for action in self.controller.GetRootActions():
             if begin_eid <= action.eventId <= end_eid:
@@ -194,6 +202,7 @@ class MeshManager:
 
         return input_attrs
 
+    # @timer
     def get_single_mesh_output(self, postvs):
         output_attrs: list[MeshData] = []
         posidx = 0
@@ -286,6 +295,7 @@ class MeshManager:
                 if save_outputs:
                     logger.debug(f"Decoding mesh output at {eid}: {action.GetName(self.controller.GetStructuredFile())}")
                     postvs = self.controller.GetPostVSData(0, 0, rd.MeshDataStage.VSOut)
+
                     mesh_attrs = self.get_single_mesh_output(postvs)
                     self.save_single_mesh_data(mesh_attrs, save_dir, eid, is_input=False)
                     logger.debug(f"finish saving mesh output at {eid}")
