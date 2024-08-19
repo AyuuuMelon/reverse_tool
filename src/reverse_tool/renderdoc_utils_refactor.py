@@ -8,9 +8,6 @@ from typing import TYPE_CHECKING
 
 # 由于使用了比较特殊的方式导入renderdoc模块，所以这里需要使用TYPE_CHECKING来让该文件中的相关代码正常提示和跳转
 if TYPE_CHECKING:
-    import renderdoc as rd
-
-if not TYPE_CHECKING: # pylance的类型检查很怪，只有让pylance不检查这里底下的跳转才能正常跳转，实际该函数是会执行的
     @contextmanager
     def import_renderdoc_from(pymodules_dir: str, dll_dir: str):
         '''该上下文管理器用于导入、初始化并在结束后销毁renderdoc，需要传入renderdoc提供的python模块路径以及dll路径
@@ -30,11 +27,12 @@ if not TYPE_CHECKING: # pylance的类型检查很怪，只有让pylance不检查
         '''
         return rd
     
+    import renderdoc as rd
+    
     class MeshData(rd.MeshFormat):
         indexOffset = 0
         name = ''
         
-
 if not TYPE_CHECKING:
     @contextmanager
     def import_renderdoc_from(pymodules_dir: str = None, dll_dir: str = None):
@@ -50,20 +48,13 @@ if not TYPE_CHECKING:
         global rd
         rd = renderdoc
         rd.InitialiseReplay(rd.GlobalEnvironment(), [])
-        
-        
-        global MeshData
-        class MeshData(rd.MeshFormat):
-            indexOffset = 0
-            name = ''
-        
 
         try:
             yield rd
         finally:
             shutdown_renderdoc()
             pass
-        
+
 def shutdown_renderdoc():
     rd.ShutdownReplay()
 
